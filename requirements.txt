@@ -3,6 +3,7 @@ uvicorn==0.35.0
 pillow==11.3.0
 tensorflow==2.15.0
 numpy==1.25.2
+tflite-runtime==2.14.0
 typing-extensions>=4.0.0
 python-multipart>=0.0.5
 requests>=2.28.0

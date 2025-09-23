@@ -32,12 +32,16 @@ STATIC_DIR = BASE_DIR / "static"
 
 # Prefer lightweight tflite-runtime; fallback to TensorFlow TFLite
 try:
-    from tensorflow.lite import Interpreter
-except ImportError as e:
-    raise RuntimeError(
-        "TensorFlow Lite runtime not found. Please install TensorFlow:\n"
-        "  pip install tensorflow==2.14.0"
-    ) from e
+    from tflite_runtime.interpreter import Interpreter
+except Exception:
+    try:
+        from tensorflow.lite.python.interpreter import Interpreter
+    except Exception as e:
+        raise RuntimeError(
+            "No TFLite runtime found. Install one of:\n"
+            "  pip install tflite-runtime\n"
+            "  or: pip install tensorflow==2.14.0"
+        ) from e
 
 
 app = FastAPI(
