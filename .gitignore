@@ -1,0 +1,21 @@
+# Ignore Python cache directory
+__pycache__/
+
+# Ignore archive files
+*.zip
+
+# Ignore temporary and backup files
+*.tmp
+*.bak
+*.swp
+
+# Ignore log files
+*.log
+
+# Ignore virtual environment directories
+venv/
+.env/
+
+# Ignore system files (Windows/macOS)
+Thumbs.db
+.DS_Store

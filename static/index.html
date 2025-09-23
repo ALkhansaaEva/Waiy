@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>وعي — صفحة الاختبار</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="container">
+    <header class="header">
+      <h1>وعي — صفحة الاختبار</h1>
+      <p class="sub">واجهة تجريبية (Happy vs Sad)</p>
+    </header>
+
+    <section class="card">
+
+      <!-- Dropzone with labelled heading for accessibility -->
+      <section id="dropZone" class="dropzone">
+        <h2 id="dropZoneLabel" class="sr-only">منطقة إسقاط</h2>
+        <p>اسحب وأفلت صورة هنا</p>
+        <p class="muted">أو اضغط للاختيار</p>
+      </section>
+
+      <!-- Hidden file input (used by JavaScript), aria-label is OK here -->
+      <input id="fileInput" type="file" accept="image/*" aria-label="اختيار صورة">
+
+      <!-- Image preview area -->
+      <section class="preview">
+        <div class="frame" id="frame">
+          <div id="placeholder" class="placeholder">
+            <svg width="40" height="40" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14m18 0H3m18 0-5-6-4 5-3-4-4 5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            </svg>
+            <p>لا توجد صورة — ارفع صورة للمعاينة.</p>
+          </div>
+
+          <!-- Canvas without aria-label; description linked below -->
+          <canvas id="previewCanvas"></canvas>
+          <p id="previewDesc" class="sr-only">لوحة المعاينة تعرض الصورة المختارة</p>
+
+          <!-- Appears after an image is selected -->
+          <div id="changeBar" class="change-bar hidden">
+            <button id="changeBtn" type="button" class="ghost small">تغيير</button>
+            <button id="resetBtn" type="button" class="ghost small">إعادة تعيين</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Sample buttons for testing -->
+      <section id="samplesBar" class="samples" aria-labelledby="samplesLabel">
+        <h2 id="samplesLabel" class="sr-only">عينات للاختبار</h2>
+        <button id="loadHappy" type="button" class="chip">😊 عينة سعيد</button>
+        <button id="loadSad" type="button" class="chip">☹️ عينة حزين</button>
+      </section>
+
+      <!-- Main action button -->
+      <div class="controls actions">
+        <button id="analyzeBtn" type="button" class="primary hidden">تحليل</button>
+      </div>
+
+      <!-- Processing and result sections -->
+      <output id="loading" class="loading hidden" aria-live="assertive">
+        <span class="spinner"></span>
+        جارٍ المعالجة…
+      </output>
+
+      <section id="result" class="result hidden" aria-live="polite" aria-atomic="true"></section>
+      <div id="status" class="status">جاهز</div>
+    </section>
+
+    <footer class="footer">
+      <small>© 2025 · وعي — صفحة الاختبار</small>
+    </footer>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
