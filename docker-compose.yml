@@ -1,0 +1,12 @@
+version: "3.8"
+
+services:
+  waiy-api:
+    build: .
+    container_name: waiy-app
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app  # Optional: Mount local files into container (useful during development)
+    environment:
+      - PYTHONUNBUFFERED=1
