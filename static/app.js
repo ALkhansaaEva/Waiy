@@ -225,13 +225,13 @@ async function predictBase64(dataUrl){
 
     if(!res.ok) throw new Error(j.detail || j.message || `HTTP ${res.status}`);
 
-    const sad   = j.probs?.Sad   ?? 0;
-    const happy = j.probs?.Happy ?? 0;
+    // const sad   = j.probs?.Sad   ?? 0;
+    // const happy = j.probs?.Happy ?? 0;
+    // <div><strong>النسبة:</strong> ${(j.confidence*100).toFixed(1)}%</div>
+    // <div><strong>سعيد:</strong> ${(happy*100).toFixed(1)}% · <strong>حزين:</strong> ${(sad*100).toFixed(1)}%</div>
 
     resultEl.innerHTML = `
       <div><strong>الحالة:</strong> ${j.label}</div>
-      <div><strong>النسبة:</strong> ${(j.confidence*100).toFixed(1)}%</div>
-      <div><strong>سعيد:</strong> ${(happy*100).toFixed(1)}% · <strong>حزين:</strong> ${(sad*100).toFixed(1)}%</div>
       <div><small>زمن الاستدلال:</small> ${j.inference_ms} ms</div>
     `;
     show(resultEl);
