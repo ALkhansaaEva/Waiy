@@ -11,8 +11,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
 # ========= STATIC SETTINGS (edit here) =======================================
-TFLITE_MODEL_PATH: str = "model/emotion_binary_final.tflite"
-LABEL_MAP_PATH:    str = "model/label_map_binary.json"
+TFLITE_MODEL_PATH: str = "model/emotion_multiclass_final.tflite"
+LABEL_MAP_PATH:    str = "model/label_map_multiclass.json"
 
 ENABLE_API:  bool = True     # Disable to block /predict* routes (503)
 ENABLE_UI:   bool = True     # Disable to hide the UI at "/"
@@ -66,7 +66,15 @@ if ENABLE_UI and STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # Labels
-label_map: Dict[int, str] = {0: "Sad", 1: "Happy"}
+label_map: Dict[int, str] = {
+    0: "Happy",
+    1: "Disgust",
+    2: "Fear",
+    3: "Angry",
+    4: "Sad",
+    5: "Surprise",
+    6: "Neutral"
+}
 def load_label_map(path: str) -> Dict[int, str]:
     """Load label map JSON; fallback to {0:'Sad',1:'Happy'}."""
     p = BASE_DIR / path if not Path(path).is_absolute() else Path(path)
@@ -74,8 +82,7 @@ def load_label_map(path: str) -> Dict[int, str]:
         with open(p, "r", encoding="utf-8") as f:
             m = json.load(f)
         return {int(k): v for k, v in m.items()}
-    return {0: "Sad", 1: "Happy"}
-
+    return label_map
 # TFLite core
 interpreter = None
 input_detail = None

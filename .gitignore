@@ -8,7 +8,7 @@ __pycache__/
 *.tmp
 *.bak
 *.swp
-
+happy_sad_tflite_api_project.zip
 # Ignore log files
 *.log
 
