@@ -56,4 +56,4 @@ EXPOSE 8000
 
 # 6. Run Application
 # We use the python from the venv to run the app
-CMD ["/venv/bin/uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+CMD ["/venv/bin/uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
