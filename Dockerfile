@@ -1,25 +1,31 @@
 # Use official Python 3.9.13 base image
 # Uncomment the next line if you want to use a smaller image with Alpine-based Python:
 # FROM python:3.9.13-slim
-# Using Python 3.11-alpine image for lightweight setup, but note that some packages may not be compatible with Alpine.
-FROM python:3.11-alpine
+# 1. Use 'slim' (Debian-based) instead of 'alpine'
+# This is required for complex binaries like torch, torchvision, and opencv-python.
+FROM python:3.11-slim
 
-# Set working directory inside the container
+# 2. Install OS dependencies for OpenCV (libgl1)
+# This prevents errors like "libGL.so.1: cannot open shared object file"
+RUN apt-get update && apt-get install -y \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
-# Copy dependency file (requirements.txt) into the container
+# Copy requirements first to leverage Docker layer caching
 COPY requirements.txt .
 
-# Install pip dependencies using the 'no-cache' option to avoid caching of package downloads
-# Also using the 'fast-deps' feature which is experimental, it can improve install speed but might cause issues in production.
+# 3. Install Python packages
+# I removed the experimental '--use-feature=fast-deps' for better stability
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir --use-feature=fast-deps -r requirements.txt
+    pip install --no-cache-dir -r requirements.txt
 
-# Copy all project files into the container, including code, configuration, etc.
+# 4. Copy the rest of your application code
+# This copies app.py, the 'model' folder, and 'static' folder
 COPY . .
 
-# Expose port 8000 for the FastAPI application to be accessible
+# Expose the port and run the application
 EXPOSE 8000
-
-# Run the FastAPI app using uvicorn as the ASGI server
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
