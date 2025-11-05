@@ -1,14 +1,15 @@
 # Use official Python 3.9.13 base image
 # Uncomment the next line if you want to use a smaller image with Alpine-based Python:
 # FROM python:3.9.13-slim
-# 1. Use 'slim' (Debian-based) instead of 'alpine'
-# This is required for complex binaries like torch, torchvision, and opencv-python.
-FROM python:3.11-slim
+# 1. Use 'slim' (Debian-based) as the base
+FROM python:3.10-slim
 
-# 2. Install OS dependencies for OpenCV (libgl1)
-# This prevents errors like "libGL.so.1: cannot open shared object file"
+# 2. Install correct OS dependencies for OpenCV
+#    - 'libgl1' and 'libglx-mesa0' are the modern replacements for 'libgl1-mesa-glx'
+#    - 'libglib2.0-0' is still needed
 RUN apt-get update && apt-get install -y \
-    libgl1-mesa-glx \
+    libgl1 \
+    libglx-mesa0 \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -18,12 +19,10 @@ WORKDIR /app
 COPY requirements.txt .
 
 # 3. Install Python packages
-# I removed the experimental '--use-feature=fast-deps' for better stability
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # 4. Copy the rest of your application code
-# This copies app.py, the 'model' folder, and 'static' folder
 COPY . .
 
 # Expose the port and run the application
