@@ -1,11 +1,11 @@
-# Tell pip to look at the PyTorch CPU-only package index
---index-url https://download.pytorch.org/whl/cpu
+# 1. Use the PyTorch index as an EXTRA source, not the only one
+--extra-index-url https://download.pytorch.org/whl/cpu
 
-# Install the CPU-only versions (note the "+cpu" suffix)
+# 2. Install the CPU-only versions (pip will find these in the extra index)
 torch==2.9.0+cpu
 torchvision==0.24.0+cpu
 
-# --- Your other packages ---
+# 3. Install other packages (pip will find these in the default PyPI index)
 fastapi==0.121.0
 uvicorn==0.38.0
 pillow==12.0.0
