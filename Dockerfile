@@ -7,7 +7,7 @@ WORKDIR /app
 # Copy dependency file and install dependencies
 COPY requirements.txt .
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir --use-feature=fast-deps -r requirements.txt
 
 # Copy all project files into the container
 COPY . .
