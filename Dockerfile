@@ -6,7 +6,7 @@
 # This stage installs all Python packages
 # It will be cached as long as requirements.txt doesn't change
 # =====================================================================
-FROM python:3.10-slim AS builder
+FROM python:3.12-slim AS builder
 
 # 1. Install OS Dependencies
 RUN apt-get update && apt-get install -y \
@@ -31,7 +31,7 @@ RUN pip install --upgrade pip && \
 # STAGE 2: The "Final" Stage
 # This is the final, optimized image for production
 # =====================================================================
-FROM python:3.10-slim
+FROM python:3.12-slim
 
 # 1. Install OS Dependencies (must be in final image too)
 RUN apt-get update && apt-get install -y \
@@ -56,4 +56,4 @@ EXPOSE 8000
 
 # 6. Run Application
 # We use the python from the venv to run the app
-CMD ["/venv/bin/uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/venv/bin/uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

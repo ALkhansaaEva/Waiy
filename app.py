@@ -1,16 +1,21 @@
-# app.py
 # -----------------------------------------------------------------------------
 # FastAPI Emotion Recognition API (PyTorch + timm EfficientNet)
 # - Same endpoints/config names as legacy TFLite API for drop-in compatibility.
 # - High-quality preprocessing before inference:
 #   denoise -> face crop (with margin) -> CLAHE -> Unsharp -> TTA (FiveCrop+Flip).
+# - Faster request handling without changing outputs:
+#     * Async-friendly: heavy CPU work offloaded to a thread pool
+#     * Concurrency guard with semaphore (prevents overload)
+#     * Optional CUDA niceties: pinned memory + non_blocking transfers
+#     * Model warmup on startup to reduce first-request latency
 # - Pydantic v2-safe query params (no regex on int; use Literal[2, 10]).
 # - Forced labels mapping as requested (Anger, Disgust, Fear, Happy, Neutral, Sad, Surprise).
 # -----------------------------------------------------------------------------
 
-import os, io, time, json, base64
+import os, io, time, json, base64, asyncio
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Literal
+from typing import Dict, Any, Optional, Literal
+import concurrent.futures as cf
 
 import numpy as np
 from PIL import Image, ImageOps
@@ -21,8 +26,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
 # =================== STATIC SETTINGS (names kept the same) ===================
-# NOTE: TFLITE_MODEL_PATH now points to a PyTorch .pt checkpoint (not .tflite).
-TFLITE_MODEL_PATH: str = "model/enet_b2_7.pt"          # <- your PyTorch model
+TFLITE_MODEL_PATH: str = "model/enet_b2_7.pt"          # points to a PyTorch .pt
 LABEL_MAP_PATH:    str = "model/label_map_multiclass.json"
 
 ENABLE_API:  bool = True
@@ -32,7 +36,7 @@ ENABLE_DOCS: bool = True
 MAX_IMAGE_MB: int = 10        # request size limit in MB
 DEFAULT_IMG_SIZE: int = 320   # try 288/320/352
 DEFAULT_TTA_CROPS: int = 10   # 10 = five-crop+flips, 2 = center+flip
-FORCE_DEFAULT_LABELS: bool = True  # ignore JSON label map and use the mapping below
+FORCE_DEFAULT_LABELS: bool = True
 # ============================================================================
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -45,7 +49,7 @@ import cv2
 import torchvision.transforms.functional as TF
 from torchvision import transforms
 
-# Unpickle timm EfficientNet if checkpoint needs it
+# Allow loading timm EfficientNet checkpoints
 torch.serialization.add_safe_globals([timm.models.efficientnet.EfficientNet])
 
 _device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -63,7 +67,7 @@ _default_label_map: Dict[int, str] = {
 }
 label_map: Dict[int, str] = dict(_default_label_map)
 
-# ImageNet normalization (EfficientNet/timm)
+# ImageNet normalization
 _MEAN = [0.485, 0.456, 0.406]
 _STD  = [0.229, 0.224, 0.225]
 _to_tensor_norm = transforms.Compose([
@@ -71,18 +75,27 @@ _to_tensor_norm = transforms.Compose([
     transforms.Normalize(mean=_MEAN, std=_STD),
 ])
 
-# OpenCV Haar face detector (built-in path)
+# OpenCV Haar face detector
 _HAAR = cv2.CascadeClassifier(os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml"))
+
+# ---------------------- Thread pool & concurrency guard ----------------------
+# Heavy preprocessing + inference is offloaded to a thread pool to keep the
+# event loop responsive. A semaphore limits concurrent work to avoid thrashing.
+MAX_WORKERS = min(32, (os.cpu_count() or 2) + 2)
+_CONCURRENCY_LIMIT = MAX_WORKERS  # tune if needed
+_executor = cf.ThreadPoolExecutor(max_workers=MAX_WORKERS)
+_semaphore = asyncio.Semaphore(_CONCURRENCY_LIMIT)
 
 # --------------------------------- FastAPI -----------------------------------
 app = FastAPI(
     title="Emotion API (PyTorch/timm)",
-    version="2.2.0",
+    version="2.3.0",
     docs_url=None if not ENABLE_DOCS else "/docs",
     redoc_url=None if not ENABLE_DOCS else "/redoc",
     openapi_url=None if not ENABLE_DOCS else "/openapi.json",
 )
 
+# CORS: allow all (adjust if you want to restrict later)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], allow_credentials=True,
@@ -94,10 +107,7 @@ if ENABLE_UI and STATIC_DIR.exists():
 
 # --------------------------------- Labels ------------------------------------
 def load_label_map(path: str) -> Dict[int, str]:
-    """
-    Load label map JSON if present (and FORCE_DEFAULT_LABELS=False),
-    otherwise use the forced default mapping.
-    """
+    """Load label map JSON unless forced to defaults."""
     if FORCE_DEFAULT_LABELS:
         return dict(_default_label_map)
     p = BASE_DIR / path if not Path(path).is_absolute() else Path(path)
@@ -121,14 +131,35 @@ def _load_torch_model(model_path: str) -> torch.nn.Module:
 
 @app.on_event("startup")
 def _startup():
+    """Load labels + model, set CUDA hints, and warm up once."""
     global _model, label_map
     label_map = load_label_map(LABEL_MAP_PATH)
-    _model = _load_torch_model(TFLITE_MODEL_PATH)  # keep var name for backward-compat
+    _model = _load_torch_model(TFLITE_MODEL_PATH)
+
+    # Enable CuDNN autotuner where safe for speed
+    try:
+        torch.backends.cudnn.benchmark = True
+    except Exception:
+        pass
+
+    # One-time warmup to reduce first-request latency (keeps outputs identical)
+    try:
+        with torch.no_grad():
+            n = 10  # worst-case TTA batch size
+            s = DEFAULT_IMG_SIZE
+            dummy = torch.zeros((n, 3, s, s), dtype=torch.float32)
+            if _device.type == "cuda":
+                dummy = dummy.pin_memory()
+            _ = _model(dummy.to(_device, non_blocking=True))
+    except Exception as e:
+        print("Warmup failed (non-fatal):", e)
+
     print("Loaded PyTorch model:", TFLITE_MODEL_PATH)
     print("Using device:", _device)
     print("Labels:", label_map)
 
 # --------------------------- Preprocessing (HQ) -------------------------------
+
 def _largest_bbox(gray: np.ndarray):
     """Return largest face bbox (x,y,w,h) or None."""
     faces = _HAAR.detectMultiScale(gray, 1.1, 5, minSize=(30, 30))
@@ -136,6 +167,7 @@ def _largest_bbox(gray: np.ndarray):
         return None
     areas = [w * h for (x, y, w, h) in faces]
     return faces[int(np.argmax(areas))]
+
 
 def _crop_face_or_center(img_rgb: np.ndarray) -> np.ndarray:
     """Face crop with margin; fallback to centered square."""
@@ -147,11 +179,12 @@ def _crop_face_or_center(img_rgb: np.ndarray) -> np.ndarray:
         x0 = max(0, x - m); y0 = max(0, y - m)
         x1 = min(img_rgb.shape[1], x + w + m); y1 = min(img_rgb.shape[0], y + h + m)
         return img_rgb[y0:y1, x0:x1]
-    # fallback
+    # fallback: centered square crop
     H, W = img_rgb.shape[:2]
     side = min(H, W)
     sy = (H - side) // 2; sx = (W - side) // 2
     return img_rgb[sy:sy+side, sx:sx+side]
+
 
 def _clahe_rgb(img_rgb: np.ndarray, clip: float = 2.0) -> np.ndarray:
     """CLAHE on L channel to stabilize contrast/lighting."""
@@ -162,15 +195,18 @@ def _clahe_rgb(img_rgb: np.ndarray, clip: float = 2.0) -> np.ndarray:
     lab2 = cv2.merge([l2, a, b])
     return cv2.cvtColor(lab2, cv2.COLOR_LAB2RGB)
 
+
 def _unsharp(img_rgb: np.ndarray, k: float = 0.8, sigma: float = 1.0) -> np.ndarray:
     """Unsharp mask to emphasize facial edges."""
     blur = cv2.GaussianBlur(img_rgb, (0, 0), sigma)
     sharp = cv2.addWeighted(img_rgb, 1 + k, blur, -k, 0)
     return np.clip(sharp, 0, 255).astype(np.uint8)
 
+
 def _denoise_gentle(img_rgb: np.ndarray) -> np.ndarray:
     """Light bilateral denoising for compression noise without blurring edges."""
     return cv2.bilateralFilter(img_rgb, d=5, sigmaColor=35, sigmaSpace=35)
+
 
 def _tta_center_flip(pil_img: Image.Image, size: int) -> torch.Tensor:
     """Fast TTA: center + horizontal flip -> [2,3,S,S]."""
@@ -178,6 +214,7 @@ def _tta_center_flip(pil_img: Image.Image, size: int) -> torch.Tensor:
     x1 = _to_tensor_norm(fitted)
     x2 = _to_tensor_norm(ImageOps.mirror(fitted))
     return torch.stack([x1, x2], dim=0)
+
 
 def _tta_fivecrop_flip(pil_img: Image.Image, size: int) -> torch.Tensor:
     """Full TTA: FiveCrop + flips -> [10,3,S,S]."""
@@ -187,14 +224,15 @@ def _tta_fivecrop_flip(pil_img: Image.Image, size: int) -> torch.Tensor:
     crops += [TF.hflip(c) for c in crops]
     return torch.stack([_to_tensor_norm(c) for c in crops], dim=0)
 
+
 def preprocess_image_to_tta(
     im: Image.Image,
     img_size: int = DEFAULT_IMG_SIZE,
     tta_crops: int = DEFAULT_TTA_CROPS
 ) -> torch.Tensor:
     """
-    Full pipeline:
-      - Convert to RGB ndarray (handle GRAY/RGBA)
+    Full pipeline (kept identical for output parity):
+      - Convert to RGB ndarray (handles GRAY/RGBA)
       - Denoise -> face crop (with margin) -> CLAHE -> Unsharp
       - PIL -> TTA tensor [N,3,S,S]
     """
@@ -222,6 +260,7 @@ def preprocess_image_to_tta(
     return batch  # [N,3,S,S]
 
 # -------------------------------- Inference ----------------------------------
+
 def infer_batch_tta(x_batch: torch.Tensor) -> Dict[str, Any]:
     """
     Inference on a TTA batch [N,3,S,S]:
@@ -234,7 +273,13 @@ def infer_batch_tta(x_batch: torch.Tensor) -> Dict[str, Any]:
 
     t0 = time.time()
     with torch.no_grad():
-        logits = _model(x_batch.to(_device, dtype=torch.float32))  # [N,C]
+        # Optional CUDA path: pin + non_blocking for faster H2D
+        if _device.type == "cuda":
+            try:
+                x_batch = x_batch.pin_memory()
+            except Exception:
+                pass
+        logits = _model(x_batch.to(_device, dtype=torch.float32, non_blocking=True))  # [N,C]
         if logits.ndim != 2:
             raise HTTPException(status_code=500, detail=f"Unexpected logits shape: {tuple(logits.shape)}")
         logits_mean = logits.mean(dim=0, keepdim=True)             # [1,C]
@@ -251,10 +296,24 @@ def infer_batch_tta(x_batch: torch.Tensor) -> Dict[str, Any]:
         "inference_ms": round(dt, 2),
     }
 
+# ------------------------------- Sync worker ---------------------------------
+
+def _process_and_infer_sync(image_bytes: bytes, size: int, tta: int) -> Dict[str, Any]:
+    """Synchronous worker: decode -> preprocess -> infer (called in thread pool)."""
+    try:
+        im = Image.open(io.BytesIO(image_bytes))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid image data.")
+
+    x_batch = preprocess_image_to_tta(im, img_size=size, tta_crops=tta)
+    return infer_batch_tta(x_batch)
+
 # --------------------------------- Helpers -----------------------------------
+
 def _ensure_api_enabled():
     if not ENABLE_API:
         raise HTTPException(status_code=503, detail="API disabled by configuration.")
+
 
 def _enforce_size_limit(num_bytes: int):
     max_bytes = int(MAX_IMAGE_MB * 1024 * 1024)
@@ -266,9 +325,11 @@ def _enforce_size_limit(num_bytes: int):
 def health():
     return {"ok": True, "model_loaded": _model is not None, "device": str(_device)}
 
+
 @app.get("/labels")
 def labels():
     return label_map
+
 
 @app.get("/", response_class=HTMLResponse)
 def root():
@@ -280,8 +341,9 @@ def root():
             return FileResponse(p)
     raise HTTPException(
         status_code=500,
-        detail="index.html not found. Place it next to app.py or at static/index.html."
+        detail="index.html not found. Place it next to app.py or at static/index.html.",
     )
+
 
 @app.post("/predict")
 async def predict(
@@ -298,17 +360,21 @@ async def predict(
     _ensure_api_enabled()
     if file is None:
         raise HTTPException(status_code=400, detail="No file uploaded. Use 'file' field.")
+
     try:
         data = await file.read()
         _enforce_size_limit(len(data))
-        im = Image.open(io.BytesIO(data))
     except HTTPException:
         raise
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid image file.")
 
-    x_batch = preprocess_image_to_tta(im, img_size=size, tta_crops=tta)
-    return JSONResponse(infer_batch_tta(x_batch))
+    # Offload heavy work to thread pool (keeps event loop snappy)
+    loop = asyncio.get_running_loop()
+    async with _semaphore:
+        result = await loop.run_in_executor(_executor, _process_and_infer_sync, data, size, tta)
+    return JSONResponse(result)
+
 
 @app.post("/predict_base64")
 async def predict_base64(
@@ -331,14 +397,16 @@ async def predict_base64(
             b64 = b64.split(",", 1)[1]
         data = base64.b64decode(b64)
         _enforce_size_limit(len(data))
-        im = Image.open(io.BytesIO(data))
     except HTTPException:
         raise
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid base64 image.")
 
-    x_batch = preprocess_image_to_tta(im, img_size=size, tta_crops=tta)
-    return JSONResponse(infer_batch_tta(x_batch))
+    # Offload heavy work to thread pool (keeps event loop snappy)
+    loop = asyncio.get_running_loop()
+    async with _semaphore:
+        result = await loop.run_in_executor(_executor, _process_and_infer_sync, data, size, tta)
+    return JSONResponse(result)
 
 # ------------------------------- Dev notes -----------------------------------
 # Install:
@@ -348,7 +416,7 @@ async def predict_base64(
 #   uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 #
 # Check:
-#   curl -F "file=@images/haby.jpg" "http://127.0.0.1:8000/predict?size=352&tta=10"
+#   curl -F "file=@images/sample.jpg" "http://127.0.0.1:8000/predict?size=352&tta=2"
 #
 # Model checkpoint:
 # - Put your PyTorch checkpoint at: model/enet_b2_7.pt (or change TFLITE_MODEL_PATH).
