@@ -23,9 +23,9 @@ WORKDIR /app
 COPY requirements.txt .
 
 # 5. Install Python Dependencies
-# Upgrade pip and install packages from requirements.txt
+# Upgrade pip and install packages from requirements.txt 
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir --use-feature=fast-deps -r requirements.txt
+    pip install --no-cache-dir  -r requirements.txt
 
 # 6. Copy Application Code
 # Copy the rest of the application files.
