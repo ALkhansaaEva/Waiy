@@ -3,7 +3,7 @@ __pycache__/
 
 # Ignore archive files
 *.zip
-
+TrainModel
 # Ignore temporary and backup files
 *.tmp
 *.bak

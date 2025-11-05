@@ -1,4 +1,7 @@
-# Ignore Python virtual environments
+# Ignore the VIRTUAL ENVIRONMENT (This is the main problem!)
+TrainModel/
+
+# Ignore Python virtual environments (common names)
 venv/
 .venv/
 env/
@@ -20,5 +23,5 @@ Dockerfile
 .vscode/
 .idea/
 
-# Add any other large files or folders you don't need in the final image
-# e.g., local_data/
+# Ignore large data files (optional but good practice)
+*.zip

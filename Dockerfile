@@ -1,41 +1,59 @@
 # Use official Python 3.9.13 base image
 # Uncomment the next line if you want to use a smaller image with Alpine-based Python:
 # FROM python:3.9.13-slim
-# 1. Base Image
-# Using python 3.10-slim (Debian) which is compatible with PyTorch and OpenCV
-FROM python:3.10-slim
+# =====================================================================
+# STAGE 1: The "Builder" Stage
+# This stage installs all Python packages
+# It will be cached as long as requirements.txt doesn't change
+# =====================================================================
+FROM python:3.10-slim AS builder
 
-# 2. Install OS Dependencies
-# Install system libraries required by OpenCV (cv2) to run correctly
-# libgl1/libglx-mesa0 are for graphics, libglib2.0-0 is a core library
+# 1. Install OS Dependencies
 RUN apt-get update && apt-get install -y \
     libgl1 \
     libglx-mesa0 \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# 3. Set Working Directory
+# 2. Create a virtual environment
+# We install packages into /venv instead of the global site-packages
+ENV VIRTUAL_ENV=/venv
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+RUN python3 -m venv $VIRTUAL_ENV
+
+# 3. Install Python Dependencies
+# Copy only requirements.txt and install them into the venv
+COPY requirements.txt .
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# =====================================================================
+# STAGE 2: The "Final" Stage
+# This is the final, optimized image for production
+# =====================================================================
+FROM python:3.10-slim
+
+# 1. Install OS Dependencies (must be in final image too)
+RUN apt-get update && apt-get install -y \
+    libgl1 \
+    libglx-mesa0 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Set Working Directory
 WORKDIR /app
 
-# 4. Copy requirements file
-# Copy only requirements.txt first to leverage Docker's layer caching.
-# This step won't re-run if only the app code changes.
-COPY requirements.txt .
+# 3. Copy the virtual environment from the "builder" stage
+# This is the magic! We copy the pre-installed packages (1.5 min step)
+COPY --from=builder /venv /venv
 
-# 5. Install Python Dependencies
-# Upgrade pip and install packages from requirements.txt 
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir  -r requirements.txt
-
-# 6. Copy Application Code
-# Copy the rest of the application files.
-# This will now respect the .dockerignore file and skip large/unneeded files.
+# 4. Copy Application Code
+# This respects .dockerignore and is very fast
 COPY . .
 
-# 7. Expose Port
-# Expose the port your FastAPI app runs on
+# 5. Expose Port
 EXPOSE 8000
 
-# 8. Run Application
-# Command to start the uvicorn server
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+# 6. Run Application
+# We use the python from the venv to run the app
+CMD ["/venv/bin/uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
