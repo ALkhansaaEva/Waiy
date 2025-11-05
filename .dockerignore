@@ -1,0 +1,24 @@
+# Ignore Python virtual environments
+venv/
+.venv/
+env/
+*.env
+
+# Ignore Git repository files
+.git/
+.gitignore
+
+# Ignore Python cache files
+__pycache__/
+*.pyc
+
+# Ignore Docker files themselves
+.dockerignore
+Dockerfile
+
+# Ignore IDE settings
+.vscode/
+.idea/
+
+# Add any other large files or folders you don't need in the final image
+# e.g., local_data/
