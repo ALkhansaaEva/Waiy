@@ -1,4 +1,6 @@
-// Get DOM elements references
+// static/app.js
+
+// ======= DOM refs =======
 const fileInput   = document.getElementById('fileInput');
 const dropZone    = document.getElementById('dropZone');
 
@@ -11,55 +13,58 @@ const changeBar   = document.getElementById('changeBar');
 const changeBtn   = document.getElementById('changeBtn');
 const resetBtn    = document.getElementById('resetBtn');
 
-const loadHappy   = document.getElementById('loadHappy');
-const loadSad     = document.getElementById('loadSad');
-
 const analyzeBtn  = document.getElementById('analyzeBtn');
 const loadingEl   = document.getElementById('loading');
 const resultEl    = document.getElementById('result');
 const statusEl    = document.getElementById('status');
 
-// Configuration constants
-const REQ_TIMEOUT_MS = 15000; // Timeout for API requests in milliseconds
+// ======= Config =======
+const REQ_TIMEOUT_MS = 15000;
 
-// State variables
+// ======= State =======
 let isBusy = false;
 let abortCtrl = null;
 let currentDataUrl = null;
 
-// Utility functions for UI control
+// ======= Emotion meta (emoji, color) =======
+const EMOJI = {
+  "Anger":"😠", "Disgust":"🤢", "Fear":"😨",
+  "Happy":"😊", "Neutral":"😐", "Sad":"☹️", "Surprise":"😲"
+};
+const COLORS = {
+  "Anger":"#ff6b6b",
+  "Disgust":"#50c878",
+  "Fear":"#8a6cff",
+  "Happy":"#ffb020",
+  "Neutral":"#7b8da5",
+  "Sad":"#5da8ff",
+  "Surprise":"#eb6fff"
+};
+const ORDER = ["Anger","Disgust","Fear","Happy","Neutral","Sad","Surprise"];
+
+// ======= UI helpers =======
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const setStatus = msg => statusEl.textContent = msg;
 
-// Enable or disable buttons and inputs during busy state
 function setBusy(busy){
   isBusy = busy;
-  [analyzeBtn, resetBtn, changeBtn, loadHappy, loadSad, fileInput].forEach(el => {
-    if(el) el.disabled = busy;
-  });
+  [analyzeBtn, resetBtn, changeBtn, fileInput].forEach(el => { if (el) el.disabled = busy; });
 }
 
-// Safely parse JSON, return null on failure
 function parseJsonSafe(text){
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
+  try { return JSON.parse(text); } catch { return null; }
 }
 
-// Add and remove a temporary "bump" animation class
 function bump(el){
-  el.classList.add('bump');
-  setTimeout(() => el.classList.remove('bump'), 220);
+  el.classList.add('bump'); setTimeout(() => el.classList.remove('bump'), 220);
 }
 
-// Resize canvas based on container size and device pixel ratio
+// ======= Canvas =======
 function resizeCanvasForDPR(){
   const frame = canvas.parentElement;
   const cssWidth = Math.round(frame.clientWidth || 320);
-  const size = Math.max(220, Math.min(cssWidth, 420));
+  const size = Math.max(260, Math.min(cssWidth, 520));
   const dpr = window.devicePixelRatio || 1;
 
   canvas.style.width = size + 'px';
@@ -68,13 +73,11 @@ function resizeCanvasForDPR(){
   canvas.height = Math.round(size * dpr);
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.fillStyle = '#0e1420'; // Background color for canvas
+  ctx.fillStyle = '#0e1420';
   ctx.fillRect(0, 0, size, size);
-
   return size;
 }
 
-// Draw image on canvas centered and scaled to fit
 function drawImageToCanvas(dataUrl){
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -89,7 +92,7 @@ function drawImageToCanvas(dataUrl){
 
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(0, 0, size, size);
       ctx.drawImage(img, x, y, w, h);
       resolve();
     };
@@ -98,91 +101,26 @@ function drawImageToCanvas(dataUrl){
   });
 }
 
-// Clear canvas content and repaint background
-function clearCanvas(){
-  resizeCanvasForDPR();
-}
+function clearCanvas(){ resizeCanvasForDPR(); }
 
-// Generate sample face images (happy or sad) using canvas drawing
-function makeSample(kind = 'happy'){
-  const c = document.createElement('canvas');
-  const s = 256;
-  c.width = s;
-  c.height = s;
-  const g = c.getContext('2d');
-
-  // Face circle
-  g.fillStyle = '#FFD54F';
-  g.beginPath();
-  g.arc(s / 2, s / 2, s * 0.42, 0, Math.PI * 2);
-  g.fill();
-
-  // Eyes
-  g.fillStyle = '#1e1e1e';
-  g.beginPath();
-  g.arc(s * 0.38, s * 0.42, s * 0.045, 0, Math.PI * 2);
-  g.fill();
-  g.beginPath();
-  g.arc(s * 0.62, s * 0.42, s * 0.045, 0, Math.PI * 2);
-  g.fill();
-
-  // Mouth with cubic Bézier curve
-  const lineWidth = Math.max(8, Math.round(s * 0.08));
-  g.lineWidth = lineWidth;
-  g.lineCap = 'round';
-  g.strokeStyle = '#1e1e1e';
-  g.beginPath();
-
-  const x0 = s * 0.30;
-  const x1 = s * 0.70;
-  const y = kind === 'happy' ? s * 0.64 : s * 0.70;
-  const dx = s * 0.18;
-  const dY = s * 0.18;
-
-  g.moveTo(x0, y);
-  if(kind === 'happy'){
-    // Smile curve (control points below the line)
-    g.bezierCurveTo(x0 + dx, y + dY, x1 - dx, y + dY, x1, y);
-  } else {
-    // Frown curve (control points above the line)
-    g.bezierCurveTo(x0 + dx, y - dY, x1 - dx, y - dY, x1, y);
-  }
-  g.stroke();
-
-  return c.toDataURL('image/png');
-}
-
-// Show or hide uploader area (drop zone)
+// ======= Uploader =======
 function showUploader(showIt){
-  if(showIt){
-    dropZone.classList.remove('hidden');
-    dropZone.style.display = '';
-  } else {
-    dropZone.classList.add('hidden');
-    dropZone.style.display = 'none';
-  }
+  if(showIt){ dropZone.classList.remove('hidden'); dropZone.style.display = ''; }
+  else { dropZone.classList.add('hidden'); dropZone.style.display = 'none'; }
 }
 
-// Set selected image data and update UI accordingly
 function setPickedData(dataUrl){
   currentDataUrl = dataUrl;
   showUploader(false);
   hide(placeholder);
   show(changeBar);
+  hide(resultEl);
   clearCanvas();
   drawImageToCanvas(dataUrl)
-    .then(() => {
-      show(analyzeBtn);
-      bump(frameEl);
-      bump(analyzeBtn);
-      setStatus('الصورة جاهزة — اضغط "تحليل".');
-    })
-    .catch(() => {
-      setStatus('فشل في عرض الصورة.');
-    });
+    .then(() => { show(analyzeBtn); bump(frameEl); bump(analyzeBtn); setStatus('الصورة جاهزة — اضغط "تحليل".'); })
+    .catch(() => { setStatus('فشل في عرض الصورة.'); });
 }
 
-// Reset UI to initial state
 function clearUI(){
   currentDataUrl = null;
   showUploader(true);
@@ -196,23 +134,106 @@ function clearUI(){
   setStatus('جاهز');
 }
 
-// Send image to backend for prediction with hard timeout
-async function predictBase64(dataUrl){
-  if(!dataUrl){
-    setStatus('لا توجد صورة لتحليلها.');
-    return;
+// ======= Rendering results (modern) =======
+function fmtPct(x){ return (x*100).toFixed(1) + '%'; }
+
+function normalizeProbs(probsDict){
+  // Ensure all 7 emotions exist; fill missing with 0.
+  const probs = {};
+  let s = 0;
+  ORDER.forEach(k => { const v = Number(probsDict?.[k] ?? 0); probs[k] = v; s += v; });
+  // If not summing ~1, renormalize for display only
+  if (s > 0 && Math.abs(1 - s) > 1e-3){
+    ORDER.forEach(k => probs[k] = probs[k] / s);
   }
-  hide(resultEl);
-  show(loadingEl);
-  setBusy(true);
+  return probs;
+}
+
+function renderBars(probs){
+  const wrap = document.createElement('div');
+  wrap.className = 'bars';
+  ORDER.forEach(k => {
+    const row = document.createElement('div');
+    row.className = 'bar-row';
+    const cap = document.createElement('div');
+    cap.className = 'bar-cap';
+    cap.innerHTML = `<span class="emo">${EMOJI[k]||''}</span> <span>${k}</span>`;
+    const track = document.createElement('div');
+    track.className = 'bar-track';
+    const fill = document.createElement('div');
+    fill.className = 'bar-fill';
+    fill.style.background = COLORS[k] || '#4da3ff';
+    fill.style.width = Math.round((probs[k] || 0) * 100) + '%';
+    const pct = document.createElement('div');
+    pct.className = 'bar-pct';
+    pct.textContent = fmtPct(probs[k] || 0);
+    track.appendChild(fill);
+    row.appendChild(cap);
+    row.appendChild(track);
+    row.appendChild(pct);
+    wrap.appendChild(row);
+  });
+  return wrap;
+}
+
+function renderTop3(probs){
+  // Build array and sort desc
+  const arr = ORDER.map(k => ({k, v: probs[k]||0})).sort((a,b)=>b.v-a.v).slice(0,3);
+  const wrap = document.createElement('div');
+  wrap.className = 'top3';
+  arr.forEach(({k, v}) => {
+    const chip = document.createElement('span');
+    chip.className = 'top-chip';
+    chip.style.borderColor = COLORS[k] || '#4da3ff';
+    chip.style.background = 'linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,0))';
+    chip.innerHTML = `<span class="emo">${EMOJI[k]||''}</span><strong>${k}</strong><em>${fmtPct(v)}</em>`;
+    wrap.appendChild(chip);
+  });
+  return wrap;
+}
+
+function renderResultCard(j){
+  const probs = normalizeProbs(j.probs || {});
+  const label = j.label || '—';
+  const conf  = Number(j.confidence || 0);
+
+  const card = document.createElement('div');
+  card.className = 'result-card';
+
+  const header = document.createElement('div');
+  header.className = 'result-head';
+  const lh = document.createElement('div');
+  lh.className = 'result-title';
+  lh.innerHTML = `<span class="emo big">${EMOJI[label]||'🧠'}</span>
+                  <span class="lbl" style="color:${COLORS[label]||'var(--accent)'}">${label}</span>
+                  <span class="conf">${fmtPct(conf)}</span>`;
+  const rt = document.createElement('div');
+  rt.className = 'result-meta';
+  rt.innerHTML = `<span>زمن الاستدلال: ${j.inference_ms} ms</span>`;
+  header.appendChild(lh); header.appendChild(rt);
+
+  const sep = document.createElement('div'); sep.className = 'sep';
+
+  const top = renderTop3(probs);
+  const bars = renderBars(probs);
+
+  card.appendChild(header);
+  card.appendChild(sep);
+  card.appendChild(top);
+  card.appendChild(bars);
+  return card;
+}
+
+// ======= Networking =======
+async function predictBase64(dataUrl){
+  if(!dataUrl){ setStatus('لا توجد صورة لتحليلها.'); return; }
+  hide(resultEl); show(loadingEl); setBusy(true);
 
   if(abortCtrl) abortCtrl.abort();
   abortCtrl = new AbortController();
-  const timeoutId = setTimeout(() => {
-    try { abortCtrl.abort('timeout'); } catch {}
-  }, REQ_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => { try{ abortCtrl.abort('timeout'); }catch{} }, REQ_TIMEOUT_MS);
 
-  try {
+  try{
     const res = await fetch('/predict_base64', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -222,115 +243,55 @@ async function predictBase64(dataUrl){
 
     const text = await res.text();
     const j = parseJsonSafe(text) || {};
-
     if(!res.ok) throw new Error(j.detail || j.message || `HTTP ${res.status}`);
 
-    // const sad   = j.probs?.Sad   ?? 0;
-    // const happy = j.probs?.Happy ?? 0;
-    // <div><strong>النسبة:</strong> ${(j.confidence*100).toFixed(1)}%</div>
-    // <div><strong>سعيد:</strong> ${(happy*100).toFixed(1)}% · <strong>حزين:</strong> ${(sad*100).toFixed(1)}%</div>
-
-    resultEl.innerHTML = `
-      <div><strong>الحالة:</strong> ${j.label}</div>
-      <div><small>زمن الاستدلال:</small> ${j.inference_ms} ms</div>
-    `;
+    resultEl.innerHTML = '';
+    resultEl.appendChild(renderResultCard(j));
     show(resultEl);
     setStatus('تم ✓');
-
-  } catch(err) {
+  }catch(err){
     const msg = (err && err.name === 'AbortError')
-      ? 'تم إلغاء الطلب (انتهى الوقت). تحقق من الخادم أو الشبكة.'
+      ? 'تم إلغاء الطلب (انتهى الوقت).'
       : (err?.message || 'خطأ غير معروف');
-    resultEl.innerHTML = `<span class="danger">خطأ: ${msg}</span>`;
+    resultEl.innerHTML = `<div class="result-card"><span class="danger">خطأ: ${msg}</span></div>`;
     show(resultEl);
     setStatus('خطأ — تحقّق من الخادم/API');
-  } finally {
-    hide(loadingEl);
-    setBusy(false);
-    clearTimeout(timeoutId);
-    abortCtrl = null;
+  }finally{
+    hide(loadingEl); setBusy(false); clearTimeout(timeoutId); abortCtrl = null;
   }
 }
 
-// Handle file input or dropped file
+// ======= File input / drag&drop =======
 function handleFile(file){
-  if (!(file?.type?.startsWith('image/'))) {
-    setStatus('اختر ملف صورة صالح.');
-    return;
-  }
-
+  if (!(file?.type?.startsWith('image/'))){ setStatus('اختر ملف صورة صالح.'); return; }
   const MAX_MB = 8;
-  if(file.size > MAX_MB * 1024 * 1024){
-    setStatus(`الصورة كبيرة (> ${MAX_MB} MB).`);
-    return;
-  }
-
+  if(file.size > MAX_MB * 1024 * 1024){ setStatus(`الصورة كبيرة (> ${MAX_MB} MB).`); return; }
   const reader = new FileReader();
   reader.onload = e => setPickedData(e.target.result);
   reader.onerror = () => setStatus('تعذّر قراءة الملف.');
   reader.readAsDataURL(file);
 }
 
-// Event Listeners
-
-// Clicking change button triggers file picker
+// Events
 changeBtn.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => { const f = e.target.files?.[0]; if(f) handleFile(f); else setStatus('جاهز'); });
 
-// File input change
-fileInput.addEventListener('change', e => {
-  const file = e.target.files?.[0];
-  if(file) handleFile(file);
-  else setStatus('جاهز');
-});
-
-// Drag and drop events
-['dragenter', 'dragover'].forEach(evt =>
-  dropZone.addEventListener(evt, e => {
-    e.preventDefault();
-    e.stopPropagation();
-    dropZone.classList.add('is-dragover');
-  })
-);
-
-['dragleave', 'drop'].forEach(evt =>
-  dropZone.addEventListener(evt, e => {
-    e.preventDefault();
-    e.stopPropagation();
-    dropZone.classList.remove('is-dragover');
-  })
-);
-
-dropZone.addEventListener('drop', e => {
-  const file = e.dataTransfer.files?.[0];
-  if(file) handleFile(file);
-});
-
+['dragenter','dragover'].forEach(evt => dropZone.addEventListener(evt, e => {
+  e.preventDefault(); e.stopPropagation(); dropZone.classList.add('is-dragover');
+}));
+['dragleave','drop'].forEach(evt => dropZone.addEventListener(evt, e => {
+  e.preventDefault(); e.stopPropagation(); dropZone.classList.remove('is-dragover');
+}));
+dropZone.addEventListener('drop', e => { const f = e.dataTransfer.files?.[0]; if(f) handleFile(f); });
 dropZone.addEventListener('click', () => fileInput.click());
 
-// Buttons actions
 resetBtn.addEventListener('click', clearUI);
-analyzeBtn.addEventListener('click', () => {
-  if(!isBusy) predictBase64(currentDataUrl);
-});
+analyzeBtn.addEventListener('click', () => { if(!isBusy) predictBase64(currentDataUrl); });
 
-// Load sample images buttons
-loadHappy.addEventListener('click', () => {
-  if(!isBusy) setPickedData(makeSample('happy'));
-});
-loadSad.addEventListener('click', () => {
-  if(!isBusy) setPickedData(makeSample('sad'));
-});
-
-// Repaint canvas on window resize
 window.addEventListener('resize', () => {
-  if(currentDataUrl) {
-    drawImageToCanvas(currentDataUrl).catch(() => clearCanvas());
-  } else {
-    clearCanvas();
-  }
+  if(currentDataUrl){ drawImageToCanvas(currentDataUrl).catch(() => clearCanvas()); }
+  else { clearCanvas(); }
 });
 
-// Initialization
-(function init(){
-  clearUI();
-})();
+// Init
+(function init(){ clearUI(); })();

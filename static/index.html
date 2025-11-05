@@ -3,29 +3,29 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>وعي — صفحة الاختبار</title>
+  <title>وعي — اختبار التعرف على المشاعر</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
   <main class="container">
     <header class="header">
-      <h1>وعي — صفحة الاختبار</h1>
-      <p class="sub">واجهة تجريبية (Happy vs Sad)</p>
+      <h1>وعي — اختبار التعرف على المشاعر</h1>
+      <p class="sub">يدعم: Anger · Disgust · Fear · Happy · Neutral · Sad · Surprise</p>
     </header>
 
     <section class="card">
 
-      <!-- Dropzone with labelled heading for accessibility -->
-      <section id="dropZone" class="dropzone">
+      <!-- Dropzone -->
+      <section id="dropZone" class="dropzone" aria-labelledby="dropZoneLabel" role="button" tabindex="0">
         <h2 id="dropZoneLabel" class="sr-only">منطقة إسقاط</h2>
         <p>اسحب وأفلت صورة هنا</p>
         <p class="muted">أو اضغط للاختيار</p>
       </section>
 
-      <!-- Hidden file input (used by JavaScript), aria-label is OK here -->
+      <!-- Hidden file input -->
       <input id="fileInput" type="file" accept="image/*" aria-label="اختيار صورة">
 
-      <!-- Image preview area -->
+      <!-- Preview -->
       <section class="preview">
         <div class="frame" id="frame">
           <div id="placeholder" class="placeholder">
@@ -35,11 +35,9 @@
             <p>لا توجد صورة — ارفع صورة للمعاينة.</p>
           </div>
 
-          <!-- Canvas without aria-label; description linked below -->
-          <canvas id="previewCanvas"></canvas>
+          <canvas id="previewCanvas" aria-describedby="previewDesc"></canvas>
           <p id="previewDesc" class="sr-only">لوحة المعاينة تعرض الصورة المختارة</p>
 
-          <!-- Appears after an image is selected -->
           <div id="changeBar" class="change-bar hidden">
             <button id="changeBtn" type="button" class="ghost small">تغيير</button>
             <button id="resetBtn" type="button" class="ghost small">إعادة تعيين</button>
@@ -47,19 +45,12 @@
         </div>
       </section>
 
-      <!-- Sample buttons for testing -->
-      <section id="samplesBar" class="samples" aria-labelledby="samplesLabel">
-        <h2 id="samplesLabel" class="sr-only">عينات للاختبار</h2>
-        <button id="loadHappy" type="button" class="chip">😊 عينة سعيد</button>
-        <button id="loadSad" type="button" class="chip">☹️ عينة حزين</button>
-      </section>
-
-      <!-- Main action button -->
+      <!-- Main action -->
       <div class="controls actions">
         <button id="analyzeBtn" type="button" class="primary hidden">تحليل</button>
       </div>
 
-      <!-- Processing and result sections -->
+      <!-- Status / Results -->
       <output id="loading" class="loading hidden" aria-live="assertive">
         <span class="spinner"></span>
         جارٍ المعالجة…
